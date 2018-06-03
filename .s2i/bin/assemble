@@ -150,19 +150,19 @@ function build_maven() {
 
   # ==============
   # Copy artifacts
-  echo "Copying Maven artifacts from ${build_dir} to ${app_dir} ..."
-  copy_artifacts ${build_dir} ${app_dir}
-  check_error "copying artifacts from ${build_dir} to ${app_dir}" $?
+  # echo "Copying Maven artifacts from ${build_dir} to ${app_dir} ..."
+  # copy_artifacts ${build_dir} ${app_dir}
+  # check_error "copying artifacts from ${build_dir} to ${app_dir}" $?
 
   # ======================
   # ======================
   # Remove repo if desired
-  if [ "x${MAVEN_CLEAR_REPO}" != "x" ]; then
-    rm -rf "${S2I_ARTIFACTS_DIR}/m2"
-    check_error "Cannot remove local Maven repository ${S2I_ARTIFACTS_DIR}/m2" $?
-  fi
+  #if [ "x${MAVEN_CLEAR_REPO}" != "x" ]; then
+  #  rm -rf "${S2I_ARTIFACTS_DIR}/m2"
+  #  check_error "Cannot remove local Maven repository ${S2I_ARTIFACTS_DIR}/m2" $?
+  #fi
 
-  cd ${old_dir}
+  #cd ${old_dir}
 }
 
 # =========================================================================
