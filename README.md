@@ -155,3 +155,56 @@ total 144
 -rw-r--r--. 1 185 root 70638 Jun  4 12:11 amq-perf-consumer-1.xml
 -rw-r--r--. 1 185 root 70649 Jun  4 12:11 amq-perf-producer-1.xml
 ```
+
+
+## Configuring to run against a queue
+
+Just supplying a different job config here with different parameters passed to the plugin:
+
+```
+oc create -f - <<EOF
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: amq-perf-queue-1
+spec:
+  parallelism: 1    
+  completions: 1    
+  template:         
+    spec:
+      containers:
+      - name: queue-producer-1
+        image: 172.30.1.1:5000/amq/amq-perf-test-job:latest
+        command: ["/bin/bash", "-c", "mvn -f /tmp/src/pom.xml activemq-perf:producer -Dfactory.brokerURL=tcp://broker-amq-tcp:61616 -DsysTest.numClients=1 -Dconsumer.durable=true -DsysTest.samplers=tpu -Dproducer.destName=queue://my.queue -Dproducer.deliveryMode=persistent -Dproducer.sendType=count -Dproducer.sendCount=10000 -Dproducer.sessTransacted=true -Dfactory.userName=admin -Dfactory.password=admin -DsysTest.reportDir=/test/ -DsysTest.reportName=amq-queue-producer-1 -Dmaven.repo.local=/tmp/artifacts/m2"]
+        resources:
+          limits:
+            cpu: 300m
+            memory: 512Mi
+          requests:
+            cpu: 300m
+            memory: 512Mi        
+        volumeMounts:
+        - mountPath: /test
+          name: test
+      - name: queue-consumer-1
+        image: 172.30.1.1:5000/amq/amq-perf-test-job:latest
+        command: ["/bin/bash", "-c", "mvn -f /tmp/src/pom.xml activemq-perf:consumer -Dfactory.brokerURL=tcp://broker-amq-tcp:61616 -Dconsumer.sessTransacted=true -Dconsumer.destName=queue://my.queue -Dconsumer.recvCount=10000 -DsysTest.numClients=1 -Dconsumer.recvType=count -Dfactory.userName=admin -Dfactory.password=admin -DsysTest.reportDir=/test/ -DsysTest.reportName=amq-queue-consumer-1 -Dmaven.repo.local=/tmp/artifacts/m2"]
+        resources:
+          limits:
+            cpu: 300m
+            memory: 512Mi
+          requests:
+            cpu: 300m
+            memory: 512Mi        
+        volumeMounts:
+        - mountPath: /test
+          name: test          
+      volumes:
+      - name: test
+        persistentVolumeClaim:
+          claimName: perf-test-claim
+      restartPolicy: Never
+...
+EOF
+```
