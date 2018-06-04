@@ -1,32 +1,41 @@
 # amq-perf-test-job
 
-What is it? Overriden s2i scripts that run the `activemq-perf:consumer` task from the maven plugin in order to build the container (download all of the dependencies locally) - mainly because I couldn't figure out how `mvn dependency:go-offline` works.  And this was workds anyway.
+What is it? Overriden s2i scripts that run the `activemq-perf:consumer` and `activemq-perf:producer` tasks from the maven activemq-perf plugin as described at: http://activemq.apache.org/activemq-performance-module-users-manual.html. 
+
+The s2i scripts simply assist with downloading all of the dependencies in the assemble stage.
+
+Once you have built the container, it can then be reused for jobs.
+
 
 ## Building
 
 ```
 oc new-build fis-java-openshift:2.0~https://github.com/welshstew/amq-perf-test-job.git
 ```
+Once the build is complete the image should be available in the namespace in which you built it.  In the case on my minishift it is available at: `172.30.1.1:5000/amq/amq-perf-test-job:latest`
 
-## Running Jobs
+## Running a Job
+
+Using the below yaml will create an Openshift Job with multiple containers - one producer, and one consumer, configured against the activemq running inside my amq namespace.  The yaml will have to be reconfigured to your liking.  
+
+Various system variables should be configured, please see the documentation at: http://activemq.apache.org/activemq-performance-module-users-manual.html
 
 ```
-oc create -f openshift/amq-perf-test-pvc.json
 oc create -f - <<EOF
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: amq-perf-consumer-1
+  name: amq-perf-test-1
 spec:
   parallelism: 1    
   completions: 1    
   template:         
     spec:
       containers:
-      - name: perf-consumer-1
-        image: 172.30.1.1:5000/openshift/fis-java-openshift:2.0
-        command: ["/bin/bash", "-c", "/tmp/src/mvn activemq-perf:consumer -Dfactory.brokerURL=tcp://broker-amq-tcp:61616 -DsysTest.numClients=1 -Dconsumer.durable=true -Dfactory.userName=admin -Dfactory.password=admin -DsysTest.reportDir=/test -Dmaven.repo.local=/tmp/artifacts/m2"]
+      - name: perf-producer-1
+        image: 172.30.1.1:5000/amq/amq-perf-test-job:latest
+        command: ["/bin/bash", "-c", "mvn -f /tmp/src/pom.xml activemq-perf:producer -Dfactory.brokerURL=tcp://broker-amq-tcp:61616 -DsysTest.numClients=1 -Dconsumer.durable=true -Dfactory.userName=admin -Dfactory.password=admin -DsysTest.reportDir=/test/ -DsysTest.reportName=amq-perf-producer-1 -Dmaven.repo.local=/tmp/artifacts/m2"]
         resources:
           limits:
             cpu: 300m
@@ -37,6 +46,19 @@ spec:
         volumeMounts:
         - mountPath: /test
           name: test
+      - name: perf-consumer-1
+        image: 172.30.1.1:5000/amq/amq-perf-test-job:latest
+        command: ["/bin/bash", "-c", "mvn -f /tmp/src/pom.xml activemq-perf:consumer -Dfactory.brokerURL=tcp://broker-amq-tcp:61616 -DsysTest.numClients=1 -Dconsumer.durable=true -Dfactory.userName=admin -Dfactory.password=admin -DsysTest.reportDir=/test/ -DsysTest.reportName=amq-perf-consumer-1 -Dmaven.repo.local=/tmp/artifacts/m2"]
+        resources:
+          limits:
+            cpu: 300m
+            memory: 512Mi
+          requests:
+            cpu: 300m
+            memory: 512Mi        
+        volumeMounts:
+        - mountPath: /test
+          name: test          
       volumes:
       - name: test
         persistentVolumeClaim:
@@ -46,60 +68,84 @@ spec:
 EOF
 ```
 
+## Inspecting the results
 
+Check the logs in your containers for the job:
 
-oc create -f https://gist.githubusercontent.com/welshstew/3cf81ecfcd3d7a945b31faea85be2c48/raw/ece12a2046104381e607760fbe89685748036f39/perf-test-claim.json
+```
+oc logs jobs/amq-perf-test-1 -c perf-producer-1
+...
+########################################
+####    SYSTEM CPU USAGE SUMMARY    ####
+########################################
+Total Blocks Received: 1615560
+Ave Blocks Received: 6731.5
+Total Blocks Sent: 1822740
+Ave Blocks Sent: 7594.75
+Total Context Switches: 1830966
+Ave Context Switches: 7629.025
+Total User Time: 7433
+Ave User Time: 30.970833333333335
+Total System Time: 5084
+Ave System Time: 21.183333333333334
+Total Idle Time: 10882
+Ave Idle Time: 45.34166666666667
+Total Wait Time: 277
+Ave Wait Time: 1.1541666666666666
+[INFO] Created performance report: /test/amq-perf-producer-1.xml
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+...
 
-/tmp/src
+```
 
+Also, we had a shared persistent storage setup where the reports are produced:
 
--Dmaven.repo.local="c:\test\repo"
+```
+[user@localhost amq-perf-test-job]$ oc get pv | grep perf-test-claim
+pv0059    100Gi      RWO,ROX,RWX    Recycle          Bound       amq/perf-test-claim                             5d
 
+#Export the pv so we can see where the volume is:
 
- mvn activemq-perf:consumer -Dfactory.brokerURL=tcp://broker-amq-tcp:61616 -DsysTest.numClients=1 -Dconsumer.durable=true -Dfactory.userName=admin -Dfactory.password=admin -DsysTest.reportDir=/tmp -Dmaven.repo.local="/tmp/artifacts/m2"
+[user@localhost amq-perf-test-job]$ oc get pv | grep perf-test-claim | awk '{print $1}' | xargs oc export pv
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    pv.kubernetes.io/bound-by-controller: "yes"
+  creationTimestamp: null
+  labels:
+    volume: pv0059
+  name: pv0059
+spec:
+  accessModes:
+  - ReadWriteOnce
+  - ReadWriteMany
+  - ReadOnlyMany
+  capacity:
+    storage: 100Gi
+  claimRef:
+    apiVersion: v1
+    kind: PersistentVolumeClaim
+    name: perf-test-claim
+    namespace: amq
+    resourceVersion: "239776"
+    uid: c7b56267-6801-11e8-bf9f-52540038bbcc
+  hostPath:
+    path: /var/lib/minishift/openshift.local.pv/pv0059
+    type: ""
+  persistentVolumeReclaimPolicy: Recycle
+status: {}
 
+```
+In this instance the volume is in a hostPath because I am running on minishift.  We are able to inspect the xml files here.
 
-
-mvn activemq-perf:consumer -Dfactory.brokerURL=tcp://broker-amq-tcp:61616 -DsysTest.numClients=1 -Dconsumer.durable=true -Dfactory.userName=admin -Dfactory.password=admin -DsysTest.reportDir=/tmp/reportDir -Dmaven.repo.local=/home/jboss/.m2/
-
-
-
-
-
-MAVEN_ARGS=dependency:go-offline
-
-oc new-build fis-java-openshift:2.0~https://github.com/welshstew/activemq-perftest.git
-
-
-    strategy:
-      sourceStrategy:
-        env:
-        - name: KIE_CONTAINER_DEPLOYMENT
-          value: processserver-library=org.openshift.quickstarts:processserver-library:1.4.0.Final
-        - name: MAVEN_MIRROR_URL
-          value: http://192.168.122.50:8081/nexus/content/groups/public/
-        - name: ARTIFACT_DIR
-        forcePull: true
-        from:
-          kind: ImageStreamTag
-          name: jboss-processserver64-openshift:1.3
-          namespace: openshift
-      type: Source
-    successfulBuildsHistoryLimit: 5
-
-
-
-
-
-
-
-
-Copying Maven artifacts from /tmp/src/target to /deployments ...
-Running: cp *.jar /deployments
-/usr/local/s2i/assemble: line 62: cd: /tmp/src/target: No such file or directory
-cp: cannot stat '*.jar': No such file or directory
-Aborting due to error code 1 for copying artifacts from /tmp/src/target to /deployments
-error: build error: non-zero (13) exit code from registry.access.redhat.com/jboss-fuse-6/fis-java-openshift@sha256:4c701b79aeb3fd87147447c1bf445502ceb15343d171b87f47a70bf9aa530263
-
-
-oc new-app fis-java-openshift:2.0~https://github.com/welshstew/amq-perf-test-job.git
+```
+[user@localhost amq-perf-test-job]$ minishift ssh
+Last login: Mon Jun  4 12:21:20 2018 from 192.168.42.1
+[docker@minishift ~]$ ll /var/lib/minishift/openshift.local.pv/pv0059
+total 144
+-rw-r--r--. 1 185 root 70638 Jun  4 12:11 amq-perf-consumer-1.xml
+-rw-r--r--. 1 185 root 70649 Jun  4 12:11 amq-perf-producer-1.xml
+```
