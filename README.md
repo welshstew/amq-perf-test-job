@@ -10,7 +10,13 @@ Once you have built the container, it can then be reused for jobs.
 ## Building
 
 ```
+git clone https://github.com/welshstew/amq-perf-test-job.git
+
+#Build the container with the amq-perf-plugin built-in
 oc new-build fis-java-openshift:2.0~https://github.com/welshstew/amq-perf-test-job.git
+
+#Create a shared PVC
+oc create -f openshift/amq-perf-test-pvc.json
 ```
 Once the build is complete the image should be available in the namespace in which you built it.  In the case on my minishift it is available at: `172.30.1.1:5000/amq/amq-perf-test-job:latest`
 
