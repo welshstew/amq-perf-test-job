@@ -123,7 +123,7 @@ function build_maven() {
   local app_dir=$2
 
   # Default args: no tests, if a module is specified, only build this module
-  local maven_args=${MAVEN_ARGS:-dependency:go-offline}
+  local maven_args=${MAVEN_ARGS:-activemq-perf:consumer -Dfactory.brokerURL=tcp://broker-amq-tcp:61616 -DsysTest.numClients=1 -Dconsumer.durable=true -Dfactory.userName=admin -Dfactory.password=admin -DsysTest.reportDir=/tmp/}
 
   # Configure default memory options for Maven
   if [ -f "/opt/run-java/container-limits" ] && [ -f "/opt/run-java/java-default-options" ]; then
@@ -146,7 +146,7 @@ function build_maven() {
   # Run Maven
   mvn ${maven_env_args} --version
   mvn ${maven_env_args} ${maven_args} ${MAVEN_ARGS_APPEND}
-  check_error "Maven build" $?
+  # check_error "Maven build" $?
 
   # ==============
   # Copy artifacts
